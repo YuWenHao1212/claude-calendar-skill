@@ -235,12 +235,12 @@ def read_events_ics_url(ics_url, days):
       event[key] = m.group(1).strip() if m else ""
 
     # Extract DTSTART with optional TZID
-    start_match = re.search(r"^DTSTART(?:;TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
+    start_match = re.search(r"^DTSTART(?:;[^:]*TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
     start_raw = start_match.group(2).strip() if start_match else ""
     start_tzid = start_match.group(1) if start_match and start_match.group(1) else None
 
     # Extract DTEND with optional TZID
-    end_match = re.search(r"^DTEND(?:;TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
+    end_match = re.search(r"^DTEND(?:;[^:]*TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
     end_raw = end_match.group(2).strip() if end_match else ""
     end_tzid = end_match.group(1) if end_match and end_match.group(1) else None
 
