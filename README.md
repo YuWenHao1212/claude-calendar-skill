@@ -1,0 +1,72 @@
+# BP2: Calendar & Meeting Automation
+
+> Part of the [Enterprise AI Breakpoint Framework](https://github.com/YuWenHao1212?tab=repositories&q=bp&type=&language=&sort=) — 9 universal patterns for AI-powered enterprise workflows.
+
+Let Claude scan your calendar for availability, create events, generate .ics invites, and send meeting notifications — all in one conversation.
+
+**Mac + Windows supported. Google Calendar + Outlook + iCloud supported.**
+
+## Prerequisites
+
+Install [BP1: Email Workflow](https://github.com/YuWenHao1212/bp1-email) first — this skill uses it to send meeting notifications.
+
+## Install
+
+```bash
+git clone https://github.com/YuWenHao1212/bp2-calendar.git /tmp/bp2-calendar && cp -r /tmp/bp2-calendar/calendar ~/.claude/skills/calendar
+```
+
+## Setup
+
+Open Claude Code and say:
+
+> "建一個會議"
+
+Claude will auto-detect your platform and guide you through setup:
+- **Mac**: Which calendar to read from (Apple Calendar)
+- **Windows**: Your .ics subscription URL (Google/Outlook/iCloud)
+- **Optional**: Your default meeting link (Meet/Zoom/Teams)
+
+## What It Can Do
+
+| Feature | Mac | Windows |
+|---------|-----|---------|
+| Scan calendar & find availability | ✅ Apple Calendar | ✅ .ics URL |
+| Suggest meeting times | ✅ | ✅ |
+| Create events locally | ✅ Apple Calendar | ⚠️ .ics export → manual import |
+| Generate .ics invites | ✅ | ✅ |
+| Send meeting notifications + .ics | ✅ via BP1 email | ✅ via BP1 email |
+| Discuss & write agenda | ✅ | ✅ |
+
+## One-Sentence Workflow
+
+> "Schedule a meeting with Peggy next Tuesday to discuss May courses."
+
+Claude will:
+1. Check your calendar for Tuesday availability
+2. Help you write an agenda
+3. Create the event in your calendar
+4. Draft a notification email with .ics attached
+5. You review and hit send
+
+## Security
+
+| Rule | How it's enforced |
+|------|-------------------|
+| Never sends invites automatically | All notifications go to Drafts folder (code-level, via BP1) |
+| Never adds attendees to calendar | Only generates .ics for recipients to import themselves |
+| Protects .ics URL | Skill instructs Claude not to display subscription URLs |
+
+## Enterprise AI Breakpoint Framework
+
+| BP | Pattern | Repo |
+|----|---------|------|
+| 1 | Email Workflow | [bp1-email](https://github.com/YuWenHao1212/bp1-email) |
+| **2** | **Calendar & Meeting** | **this repo** |
+| 3 | Cross-source Data Consolidation | Gamma only |
+| 7 | Document Comparison | Gamma only |
+| More coming soon... | | |
+
+## License
+
+MIT
