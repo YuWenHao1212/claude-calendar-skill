@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Calendar operations for Claude Code — Mac (osascript) & Windows (.ics URL).
+Calendar operations for Claude Code — Mac (osascript/JXA) & Windows/Linux (.ics URL).
 Reads config from env.md in the skill directory.
 
 Features:
-  - Read calendar events (Mac: Apple Calendar, Windows: .ics URL)
+  - Read calendar events (Mac: Apple Calendar, Windows/Linux: .ics URL)
   - Find available time slots
-  - Create events (Mac: Apple Calendar, Windows: export .ics)
-  - Generate .ics invite files (cross-platform)
+  - Create events (Mac: Apple Calendar, Others: export .ics)
+  - Generate .ics invite files (cross-platform, RFC 5545 compliant)
 """
 
 import sys
@@ -41,98 +41,129 @@ def load_env():
 
 
 def detect_platform():
-  """Detect Mac or Windows."""
+  """Detect Mac, Linux, or Windows."""
   if sys.platform == "darwin":
     return "mac"
+  elif sys.platform.startswith("linux"):
+    return "linux"
   return "windows"
 
 
-# --- Mac: osascript ---
+def safe_int(val, default):
+  """Parse int safely, return default on failure."""
+  try:
+    return int(val)
+  except (ValueError, TypeError):
+    return default
 
-def read_events_osascript(calendar_name, days):
-  """Read events from Apple Calendar using osascript."""
+
+# --- Mac: JXA (JavaScript for Automation) ---
+
+def read_events_jxa(calendar_name, days):
+  """Read events from Apple Calendar using JXA (returns ISO dates, no locale issues)."""
   script = f'''
-  set startDate to current date
-  set endDate to startDate + ({days} * days)
-  set output to ""
-  tell application "Calendar"
-    set targetCal to first calendar whose name is "{calendar_name}"
-    set eventList to (every event of targetCal whose start date >= startDate and start date <= endDate)
-    repeat with e in eventList
-      set eSummary to summary of e
-      set eStart to start date of e
-      set eEnd to end date of e
-      set eDesc to ""
-      try
-        set eDesc to description of e
-      end try
-      set eLoc to ""
-      try
-        set eLoc to location of e
-      end try
-      set output to output & eSummary & "|||" & (eStart as string) & "|||" & (eEnd as string) & "|||" & eDesc & "|||" & eLoc & "\\n"
-    end repeat
-  end tell
-  return output
+  const Calendar = Application("Calendar");
+  const calName = "{calendar_name.replace('"', '\\"')}";
+  const cal = Calendar.calendars.whose({{name: calName}})[0];
+  const now = new Date();
+  const end = new Date(now.getTime() + {days} * 86400000);
+  const events = cal.events.whose({{
+    _and: [
+      {{startDate: {{_greaterThan: now}}}},
+      {{startDate: {{_lessThan: end}}}}
+    ]
+  }})();
+  const result = events.map(e => ({{
+    summary: e.summary(),
+    start: e.startDate().toISOString(),
+    end: e.endDate().toISOString(),
+    description: e.description() || "",
+    location: e.location() || ""
+  }}));
+  JSON.stringify(result);
   '''
   try:
     result = subprocess.run(
-      ["osascript", "-e", script],
+      ["osascript", "-l", "JavaScript", "-e", script],
       capture_output=True, text=True, timeout=30
     )
     if result.returncode != 0:
       return {"error": result.stderr.strip()}
-    events = []
-    for line in result.stdout.strip().split("\n"):
-      if "|||" in line:
-        parts = line.split("|||")
-        if len(parts) >= 3:
-          events.append({
-            "summary": parts[0].strip(),
-            "start": parts[1].strip(),
-            "end": parts[2].strip(),
-            "description": parts[3].strip() if len(parts) > 3 else "",
-            "location": parts[4].strip() if len(parts) > 4 else "",
-          })
+    output = result.stdout.strip()
+    if not output:
+      return []
+    events = json.loads(output)
+    # Normalize ISO dates to readable format
+    for e in events:
+      for field in ("start", "end"):
+        if e.get(field):
+          try:
+            dt = datetime.fromisoformat(e[field].replace("Z", "+00:00"))
+            e[field] = dt.strftime("%Y-%m-%d %H:%M")
+          except (ValueError, AttributeError):
+            pass
     return events
   except subprocess.TimeoutExpired:
     return {"error": "osascript timed out"}
+  except json.JSONDecodeError as ex:
+    return {"error": f"Failed to parse JXA output: {ex}"}
   except Exception as e:
     return {"error": str(e)}
 
 
-def create_event_osascript(calendar_name, summary, start_str, end_str, description="", location=""):
-  """Create event in Apple Calendar using osascript."""
-  # Escape quotes in strings
-  summary = summary.replace('"', '\\"')
-  description = description.replace('"', '\\"')
-  location = location.replace('"', '\\"')
-
-  script = f'''
-  tell application "Calendar"
-    set targetCal to first calendar whose name is "{calendar_name}"
-    set startDate to date "{start_str}"
-    set endDate to date "{end_str}"
-    set newEvent to make new event at end of events of targetCal with properties {{summary:"{summary}", start date:startDate, end date:endDate, description:"{description}", location:"{location}"}}
-    return summary of newEvent
-  end tell
+def create_event_jxa(calendar_name, summary, start_iso, end_iso, description="", location=""):
+  """Create event in Apple Calendar using JXA (safe, no string injection)."""
+  # Pass data as JSON env var to avoid any injection
+  event_data = json.dumps({
+    "calendarName": calendar_name,
+    "summary": summary,
+    "start": start_iso,
+    "end": end_iso,
+    "description": description,
+    "location": location,
+  })
+  script = '''
+  const data = JSON.parse($.NSProcessInfo.processInfo.environment.objectForKey("EVENT_DATA").js);
+  const Calendar = Application("Calendar");
+  const cal = Calendar.calendars.whose({name: data.calendarName})[0];
+  const event = Calendar.Event({
+    summary: data.summary,
+    startDate: new Date(data.start),
+    endDate: new Date(data.end),
+    description: data.description,
+    location: data.location
+  });
+  cal.events.push(event);
+  JSON.stringify({status: "created", summary: data.summary});
   '''
   try:
+    env = os.environ.copy()
+    env["EVENT_DATA"] = event_data
     result = subprocess.run(
-      ["osascript", "-e", script],
-      capture_output=True, text=True, timeout=30
+      ["osascript", "-l", "JavaScript", "-e", script],
+      capture_output=True, text=True, timeout=30, env=env
     )
     if result.returncode != 0:
       return {"error": result.stderr.strip()}
-    return {"status": "created", "method": "osascript", "summary": summary}
+    return json.loads(result.stdout.strip()) if result.stdout.strip() else {"status": "created", "summary": summary}
   except Exception as e:
     return {"error": str(e)}
 
 
-# --- Windows / Universal: .ics URL ---
+# --- Windows/Linux: .ics URL ---
+
+def validate_ics_url(url):
+  """Validate .ics URL scheme to prevent SSRF."""
+  if not url.startswith("https://") and not url.startswith("http://"):
+    return False
+  return True
+
 
 def read_events_ics_url(ics_url, days):
   """Read events from .ics URL, parse VEVENT blocks."""
+  if not validate_ics_url(ics_url):
+    return {"error": f"Invalid .ics URL scheme. Must start with https:// or http://"}
+
   import urllib.request
   try:
     data = urllib.request.urlopen(ics_url, timeout=30).read().decode("utf-8", errors="replace")
@@ -147,6 +178,9 @@ def read_events_ics_url(ics_url, days):
   vevent_pattern = re.compile(r"BEGIN:VEVENT(.*?)END:VEVENT", re.DOTALL)
   for match in vevent_pattern.finditer(data):
     block = match.group(1)
+    # Unfold continuation lines (RFC 5545: lines starting with space/tab are continuations)
+    block = re.sub(r"\r?\n[ \t]", "", block)
+
     event = {}
     for field, key in [("SUMMARY", "summary"), ("DTSTART", "start"), ("DTEND", "end"),
                        ("DESCRIPTION", "description"), ("LOCATION", "location")]:
@@ -159,39 +193,45 @@ def read_events_ics_url(ics_url, days):
     # Parse start date for filtering
     start_raw = event.get("start", "")
     try:
-      if "T" in start_raw:
-        if start_raw.endswith("Z"):
-          dt = datetime.strptime(start_raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-        else:
-          dt = datetime.strptime(start_raw[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
-      else:
-        dt = datetime.strptime(start_raw[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
-      if now <= dt <= end_date:
+      dt = parse_ics_datetime(start_raw)
+      if dt and now <= dt <= end_date:
         event["start"] = dt.strftime("%Y-%m-%d %H:%M")
-        # Parse end date
         end_raw = event.get("end", "")
         if end_raw:
-          try:
-            if "T" in end_raw:
-              if end_raw.endswith("Z"):
-                dt_end = datetime.strptime(end_raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
-              else:
-                dt_end = datetime.strptime(end_raw[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
-              event["end"] = dt_end.strftime("%Y-%m-%d %H:%M")
-          except ValueError:
-            pass
+          dt_end = parse_ics_datetime(end_raw)
+          if dt_end:
+            event["end"] = dt_end.strftime("%Y-%m-%d %H:%M")
+        # Unescape .ics description
+        event["description"] = event.get("description", "").replace("\\n", "\n").replace("\\,", ",")
         events.append(event)
-    except ValueError:
+    except (ValueError, TypeError):
       continue
 
   events.sort(key=lambda e: e.get("start", ""))
   return events
 
 
+def parse_ics_datetime(raw):
+  """Parse iCalendar datetime formats to timezone-aware datetime."""
+  if not raw:
+    return None
+  raw = raw.strip()
+  try:
+    if raw.endswith("Z"):
+      return datetime.strptime(raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+    elif "T" in raw:
+      return datetime.strptime(raw[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+    else:
+      # All-day event: treat as start of day
+      return datetime.strptime(raw[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
+  except ValueError:
+    return None
+
+
 # --- Cross-platform ---
 
 def find_slots(events, days=7, duration_min=60, work_start=9, work_end=18):
-  """Find available slots from event list. Work hours 9:00-18:00."""
+  """Find available slots from event list. Work hours 9:00-18:00, skip weekends."""
   if isinstance(events, dict) and "error" in events:
     return events
 
@@ -212,14 +252,11 @@ def find_slots(events, days=7, duration_min=60, work_start=9, work_end=18):
     # Get events for this day
     day_events = []
     for e in events:
-      try:
-        e_start = e.get("start", "")
-        if isinstance(e_start, str) and day.strftime("%Y-%m-%d") in e_start:
-          day_events.append(e)
-      except (ValueError, TypeError):
-        continue
+      e_start = e.get("start", "")
+      if isinstance(e_start, str) and day.strftime("%Y-%m-%d") in e_start:
+        day_events.append(e)
 
-    # Sort by start time and find gaps
+    # Parse and sort busy times
     busy = []
     for e in day_events:
       try:
@@ -240,6 +277,7 @@ def find_slots(events, days=7, duration_min=60, work_start=9, work_end=18):
       if cursor + timedelta(minutes=duration_min) <= b_start:
         slots.append({
           "date": day.strftime("%Y-%m-%d"),
+          "weekday": day.strftime("%A"),
           "start": cursor.strftime("%H:%M"),
           "end": b_start.strftime("%H:%M"),
           "duration_min": int((b_start - cursor).total_seconds() / 60),
@@ -248,6 +286,7 @@ def find_slots(events, days=7, duration_min=60, work_start=9, work_end=18):
     if cursor + timedelta(minutes=duration_min) <= day_end:
       slots.append({
         "date": day.strftime("%Y-%m-%d"),
+        "weekday": day.strftime("%A"),
         "start": cursor.strftime("%H:%M"),
         "end": day_end.strftime("%H:%M"),
         "duration_min": int((day_end - cursor).total_seconds() / 60),
@@ -256,14 +295,38 @@ def find_slots(events, days=7, duration_min=60, work_start=9, work_end=18):
   return slots
 
 
+def fold_ics_line(line):
+  """Fold long lines per RFC 5545 (max 75 octets per line)."""
+  encoded = line.encode("utf-8")
+  if len(encoded) <= 75:
+    return line
+  result = []
+  while len(encoded) > 75:
+    # Find a safe split point (don't split multi-byte chars)
+    cut = 75 if not result else 74  # first line 75, continuation 74 (after space)
+    while cut > 0 and (encoded[cut] & 0xC0) == 0x80:
+      cut -= 1
+    if result:
+      result.append(" " + encoded[:cut].decode("utf-8"))
+    else:
+      result.append(encoded[:cut].decode("utf-8"))
+    encoded = encoded[cut:]
+  if encoded:
+    if result:
+      result.append(" " + encoded.decode("utf-8"))
+    else:
+      result.append(encoded.decode("utf-8"))
+  return "\r\n".join(result)
+
+
 def generate_ics(summary, start, end, organizer, attendees,
                  description="", meet_url=None, uid=None):
-  """Generate .ics calendar invite content (RFC 5545).
+  """Generate .ics calendar invite content (RFC 5545 compliant).
   start/end: ISO 8601 with timezone (e.g. 2026-04-08T14:00:00+08:00)
   attendees: comma-separated emails
   Returns: ics content string
   """
-  uid = uid or f"{int(time.time())}@calendar-skill"
+  uid = uid or f"{int(time.time())}-{os.getpid()}@calendar-skill"
 
   def to_ical_utc(iso_str):
     clean = re.sub(r'([+-]\d{2}):(\d{2})$', r'\1\2', iso_str)
@@ -293,7 +356,6 @@ def generate_ics(summary, start, end, organizer, attendees,
     f"SUMMARY:{summary}",
   ]
   if description:
-    # Fold long lines per RFC 5545
     desc_escaped = description.replace("\\", "\\\\").replace("\n", "\\n").replace(",", "\\,")
     lines.append(f"DESCRIPTION:{desc_escaped}")
   for addr in attendees.split(","):
@@ -306,85 +368,108 @@ def generate_ics(summary, start, end, organizer, attendees,
   lines.append("SEQUENCE:0")
   lines.append("END:VEVENT")
   lines.append("END:VCALENDAR")
-  return "\r\n".join(lines)
+
+  # Apply RFC 5545 line folding
+  folded = [fold_ics_line(line) for line in lines]
+  return "\r\n".join(folded)
+
+
+def safe_output_path(requested_path):
+  """Validate output path — restrict to /tmp or skill directory."""
+  if not requested_path:
+    return os.path.join("/tmp", f"invite-{int(time.time())}-{os.getpid()}.ics")
+  resolved = os.path.realpath(requested_path)
+  allowed = ["/tmp", os.path.realpath(SKILL_DIR)]
+  if not any(resolved.startswith(d) for d in allowed):
+    return os.path.join("/tmp", os.path.basename(resolved))
+  return resolved
 
 
 # --- Commands ---
 
 def cmd_read_events(days=7):
-  """Read calendar events. Mac: osascript, Windows: .ics URL."""
-  env = load_env()
-  platform = env.get("platform", detect_platform())
+  """Read calendar events. Mac: JXA, Others: .ics URL."""
+  try:
+    env = load_env()
+    platform = env.get("platform", detect_platform())
 
-  if platform == "mac":
-    calendar_name = env.get("calendar_name", "Calendar")
-    events = read_events_osascript(calendar_name, days)
-  else:
-    ics_url = env.get("ics_url", "")
-    if not ics_url:
-      print(json.dumps({"error": "No ics_url in env.md. Run setup."}))
-      return
-    events = read_events_ics_url(ics_url, days)
+    if platform == "mac":
+      calendar_name = env.get("calendar_name", "Calendar")
+      events = read_events_jxa(calendar_name, days)
+    else:
+      ics_url = env.get("ics_url", "")
+      if not ics_url:
+        print(json.dumps({"error": "No ics_url in env.md. Run setup."}))
+        return
+      events = read_events_ics_url(ics_url, days)
 
-  print(json.dumps(events, indent=2, ensure_ascii=False))
+    print(json.dumps(events, indent=2, ensure_ascii=False))
+  except Exception as e:
+    print(json.dumps({"error": str(e)}))
 
 
 def cmd_find_slots(days=7, duration_min=60):
   """Find available time slots."""
-  env = load_env()
-  platform = env.get("platform", detect_platform())
+  try:
+    env = load_env()
+    platform = env.get("platform", detect_platform())
 
-  if platform == "mac":
-    calendar_name = env.get("calendar_name", "Calendar")
-    events = read_events_osascript(calendar_name, days)
-  else:
-    ics_url = env.get("ics_url", "")
-    if not ics_url:
-      print(json.dumps({"error": "No ics_url in env.md. Run setup."}))
-      return
-    events = read_events_ics_url(ics_url, days)
+    if platform == "mac":
+      calendar_name = env.get("calendar_name", "Calendar")
+      events = read_events_jxa(calendar_name, days)
+    else:
+      ics_url = env.get("ics_url", "")
+      if not ics_url:
+        print(json.dumps({"error": "No ics_url in env.md. Run setup."}))
+        return
+      events = read_events_ics_url(ics_url, days)
 
-  slots = find_slots(events, days, duration_min)
-  print(json.dumps(slots, indent=2, ensure_ascii=False))
+    slots = find_slots(events, days, duration_min)
+    print(json.dumps(slots, indent=2, ensure_ascii=False))
+  except Exception as e:
+    print(json.dumps({"error": str(e)}))
 
 
 def cmd_create_event(summary, start, end, description="", location=""):
-  """Create event. Mac: Apple Calendar, Windows: export .ics file."""
-  env = load_env()
-  platform = env.get("platform", detect_platform())
+  """Create event. Mac: Apple Calendar, Others: export .ics file."""
+  try:
+    env = load_env()
+    platform = env.get("platform", detect_platform())
 
-  if platform == "mac":
-    calendar_name = env.get("calendar_name", "Calendar")
-    result = create_event_osascript(calendar_name, summary, start, end, description, location)
-  else:
-    # Windows: generate .ics for user to import
-    organizer = env.get("organizer_email", "user@example.com")
-    ics_content = generate_ics(summary, start, end, organizer, "", description, location)
-    output_path = f"/tmp/event-{int(time.time())}.ics"
-    with open(output_path, "w") as f:
-      f.write(ics_content)
-    result = {"status": "created", "method": "ics_file", "path": output_path,
-              "message": "Double-click the .ics file to import into your calendar."}
+    if platform == "mac":
+      calendar_name = env.get("calendar_name", "Calendar")
+      result = create_event_jxa(calendar_name, summary, start, end, description, location)
+    else:
+      organizer = env.get("organizer_email", "user@example.com")
+      ics_content = generate_ics(summary, start, end, organizer, "", description, location)
+      output_path = safe_output_path(None)
+      with open(output_path, "w") as f:
+        f.write(ics_content)
+      result = {"status": "created", "method": "ics_file", "path": output_path,
+                "message": "Double-click the .ics file to import into your calendar."}
 
-  print(json.dumps(result, indent=2, ensure_ascii=False))
+    print(json.dumps(result, indent=2, ensure_ascii=False))
+  except Exception as e:
+    print(json.dumps({"error": str(e)}))
 
 
 def cmd_generate_ics(summary, start, end, organizer, attendees,
                      description="", meet_url=None, output_path=None):
   """Generate .ics invite file for email attachment."""
-  env = load_env()
-  if not meet_url:
-    meet_url = env.get("meet_url", "")
+  try:
+    env = load_env()
+    if not meet_url:
+      meet_url = env.get("meet_url", "")
 
-  ics_content = generate_ics(summary, start, end, organizer, attendees, description, meet_url)
+    ics_content = generate_ics(summary, start, end, organizer, attendees, description, meet_url)
+    output_path = safe_output_path(output_path)
 
-  if not output_path:
-    output_path = f"/tmp/invite-{int(time.time())}.ics"
+    with open(output_path, "w") as f:
+      f.write(ics_content)
 
-  with open(output_path, "w") as f:
-    f.write(ics_content)
-
-  print(json.dumps({"status": "ok", "path": output_path}, ensure_ascii=False))
+    print(json.dumps({"status": "ok", "path": output_path}, ensure_ascii=False))
+  except Exception as e:
+    print(json.dumps({"error": str(e)}))
 
 
 # --- CLI ---
@@ -398,16 +483,18 @@ if __name__ == "__main__":
   cmd = sys.argv[1]
 
   if cmd == "read_events":
-    days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
+    days = safe_int(sys.argv[2] if len(sys.argv) > 2 else None, 7)
     cmd_read_events(days)
 
   elif cmd == "find_slots":
-    days = int(sys.argv[2]) if len(sys.argv) > 2 else 7
-    duration = int(sys.argv[3]) if len(sys.argv) > 3 else 60
+    days = safe_int(sys.argv[2] if len(sys.argv) > 2 else None, 7)
+    duration = safe_int(sys.argv[3] if len(sys.argv) > 3 else None, 60)
     cmd_find_slots(days, duration)
 
   elif cmd == "create_event":
-    # Usage: calendar_ops.py create_event "summary" "start" "end" ["description"] ["location"]
+    if len(sys.argv) < 5:
+      print(json.dumps({"error": "Usage: create_event <summary> <start> <end> [description] [location]"}))
+      sys.exit(1)
     summary = sys.argv[2]
     start = sys.argv[3]
     end = sys.argv[4]
@@ -416,7 +503,9 @@ if __name__ == "__main__":
     cmd_create_event(summary, start, end, description, location)
 
   elif cmd == "generate_ics":
-    # Usage: calendar_ops.py generate_ics "summary" "start" "end" "organizer" "attendees" ["description"] ["meet_url"] ["output_path"]
+    if len(sys.argv) < 7:
+      print(json.dumps({"error": "Usage: generate_ics <summary> <start> <end> <organizer> <attendees> [description] [meet_url] [output_path]"}))
+      sys.exit(1)
     summary = sys.argv[2]
     start = sys.argv[3]
     end = sys.argv[4]
@@ -431,5 +520,5 @@ if __name__ == "__main__":
     print(json.dumps({"platform": detect_platform()}))
 
   else:
-    print(f"Unknown command: {cmd}")
+    print(json.dumps({"error": f"Unknown command: {cmd}"}))
     sys.exit(1)
