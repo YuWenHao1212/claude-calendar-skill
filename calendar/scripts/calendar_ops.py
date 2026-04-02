@@ -192,15 +192,18 @@ def validate_ics_url(url):
   if not url.startswith("https://") and not url.startswith("http://"):
     return False
   # Block common internal/metadata IPs
-  blocked = ["169.254.", "127.0.", "10.", "172.16.", "172.17.", "172.18.",
-             "172.19.", "172.20.", "172.21.", "172.22.", "172.23.", "172.24.",
-             "172.25.", "172.26.", "172.27.", "172.28.", "172.29.", "172.30.",
-             "172.31.", "192.168.", "0.", "localhost", "[::1]"]
+  blocked_prefixes = ["169.254.", "127.0.", "127.", "10.", "172.16.", "172.17.",
+                      "172.18.", "172.19.", "172.20.", "172.21.", "172.22.",
+                      "172.23.", "172.24.", "172.25.", "172.26.", "172.27.",
+                      "172.28.", "172.29.", "172.30.", "172.31.", "192.168.", "0."]
+  blocked_exact = ["localhost", "::1"]
   from urllib.parse import urlparse
   host = urlparse(url).hostname or ""
-  for b in blocked:
-    if host.startswith(b) or host == b.rstrip("."):
+  for b in blocked_prefixes:
+    if host.startswith(b):
       return False
+  if host in blocked_exact:
+    return False
   return True
 
 
@@ -226,18 +229,26 @@ def read_events_ics_url(ics_url, days):
     block = re.sub(r"\r?\n[ \t]", "", block)
 
     event = {}
-    for field, key in [("SUMMARY", "summary"), ("DTSTART", "start"), ("DTEND", "end"),
-                       ("DESCRIPTION", "description"), ("LOCATION", "location")]:
+    for field, key in [("SUMMARY", "summary"), ("DESCRIPTION", "description"),
+                       ("LOCATION", "location")]:
       m = re.search(r"^" + field + r"[^:]*:(.+)$", block, re.MULTILINE)
       event[key] = m.group(1).strip() if m else ""
 
-    start_raw = event.get("start", "")
-    dt = parse_ics_datetime(start_raw)
+    # Extract DTSTART with optional TZID
+    start_match = re.search(r"^DTSTART(?:;TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
+    start_raw = start_match.group(2).strip() if start_match else ""
+    start_tzid = start_match.group(1) if start_match and start_match.group(1) else None
+
+    # Extract DTEND with optional TZID
+    end_match = re.search(r"^DTEND(?:;TZID=([^:;]+))?[^:]*:(.+)$", block, re.MULTILINE)
+    end_raw = end_match.group(2).strip() if end_match else ""
+    end_tzid = end_match.group(1) if end_match and end_match.group(1) else None
+
+    dt = parse_ics_datetime(start_raw, start_tzid)
     if dt and now <= dt <= end_date:
       dt_local = utc_to_local(dt)
       event["start"] = dt_local.strftime("%Y-%m-%d %H:%M")
-      end_raw = event.get("end", "")
-      dt_end = parse_ics_datetime(end_raw)
+      dt_end = parse_ics_datetime(end_raw, end_tzid)
       if dt_end:
         dt_end_local = utc_to_local(dt_end)
         event["end"] = dt_end_local.strftime("%Y-%m-%d %H:%M")
@@ -248,8 +259,21 @@ def read_events_ics_url(ics_url, days):
   return events
 
 
-def parse_ics_datetime(raw):
-  """Parse iCalendar datetime to timezone-aware UTC datetime."""
+# Common TZID to UTC offset mapping (avoids zoneinfo dependency for Python 3.8 compat)
+TZID_OFFSETS = {
+  "Asia/Taipei": 8, "Asia/Tokyo": 9, "Asia/Shanghai": 8, "Asia/Hong_Kong": 8,
+  "Asia/Singapore": 8, "Asia/Seoul": 9, "Asia/Kolkata": 5.5,
+  "America/New_York": -5, "America/Chicago": -6, "America/Denver": -7,
+  "America/Los_Angeles": -8, "America/Toronto": -5,
+  "Europe/London": 0, "Europe/Paris": 1, "Europe/Berlin": 1, "Europe/Moscow": 3,
+  "Australia/Sydney": 11, "Pacific/Auckland": 13,
+  "US/Eastern": -5, "US/Central": -6, "US/Mountain": -7, "US/Pacific": -8,
+}
+
+
+def parse_ics_datetime(raw, tzid=None):
+  """Parse iCalendar datetime to timezone-aware UTC datetime.
+  Handles: 20260408T140000Z, 20260408T140000, 20260408, and TZID parameter."""
   if not raw:
     return None
   raw = raw.strip()
@@ -257,7 +281,13 @@ def parse_ics_datetime(raw):
     if raw.endswith("Z"):
       return datetime.strptime(raw, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
     elif "T" in raw:
-      return datetime.strptime(raw[:15], "%Y%m%dT%H%M%S").replace(tzinfo=timezone.utc)
+      dt_naive = datetime.strptime(raw[:15], "%Y%m%dT%H%M%S")
+      if tzid and tzid in TZID_OFFSETS:
+        offset_hours = TZID_OFFSETS[tzid]
+        tz = timezone(timedelta(hours=offset_hours))
+        return dt_naive.replace(tzinfo=tz).astimezone(timezone.utc)
+      # No TZID — assume local timezone
+      return dt_naive.replace(tzinfo=LOCAL_TZ).astimezone(timezone.utc)
     else:
       return datetime.strptime(raw[:8], "%Y%m%d").replace(tzinfo=timezone.utc)
   except ValueError:
@@ -353,10 +383,11 @@ def generate_ics(summary, start, end, organizer, attendees,
   """Generate RFC 5545 .ics content. All text inputs are sanitized."""
   uid = uid or "{}-{}@calendar-skill".format(int(time.time()), os.getpid())
 
-  # Sanitize all text inputs
+  # Sanitize text inputs (strip \r and control chars, but preserve \n for description escaping)
   summary = sanitize_ics_text(summary)
   organizer = sanitize_ics_text(organizer)
-  description = sanitize_ics_text(description)
+  # Description: only strip \r and control chars, keep \n for proper escaping below
+  description = re.sub(r"[\r\x00-\x08\x0b\x0c\x0e-\x1f]", " ", description) if description else ""
   if meet_url:
     meet_url = sanitize_ics_text(meet_url)
 
@@ -416,11 +447,12 @@ def safe_write_tmp(content, prefix="cal-", suffix=".ics"):
 
 
 def safe_output_path(requested_path):
-  """Validate output path or create secure temp file."""
+  """Validate output path. Returns path or None (use safe_write_tmp instead)."""
   if not requested_path:
-    return None  # Signal to use safe_write_tmp
+    return None
   resolved = os.path.realpath(requested_path)
-  allowed = ["/tmp", os.path.realpath(SKILL_DIR)]
+  # Use realpath for /tmp too (macOS: /tmp → /private/tmp)
+  allowed = [os.path.realpath("/tmp"), os.path.realpath(SKILL_DIR)]
   if not any(resolved.startswith(d) for d in allowed):
     return None
   return resolved
@@ -494,8 +526,12 @@ def cmd_generate_ics(summary, start, end, organizer, attendees,
     ics_content = generate_ics(summary, start, end, organizer, attendees, description, meet_url)
     validated = safe_output_path(output_path)
     if validated:
-      with open(validated, "w") as f:
-        f.write(ics_content)
+      # Write with restricted permissions (same as safe_write_tmp)
+      fd = os.open(validated, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+      try:
+        os.write(fd, ics_content.encode("utf-8"))
+      finally:
+        os.close(fd)
       path = validated
     else:
       path = safe_write_tmp(ics_content, prefix="invite-")
