@@ -13,7 +13,7 @@ Install [BP1: Email Workflow](https://github.com/YuWenHao1212/bp1-email) first â
 ## Install
 
 ```bash
-git clone https://github.com/YuWenHao1212/bp2-calendar.git /tmp/bp2-calendar && cp -r /tmp/bp2-calendar/calendar ~/.claude/skills/calendar
+git clone https://github.com/YuWenHao1212/claude-calendar-skill.git /tmp/claude-calendar-skill && cp -r /tmp/claude-calendar-skill/calendar ~/.claude/skills/calendar
 ```
 
 ## Setup

@@ -407,7 +407,7 @@ def generate_ics(summary, start, end, organizer, attendees,
   lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//bp2-calendar//calendar_ops//EN",
+    "PRODID:-//claude-calendar-skill//calendar_ops//EN",
     "METHOD:REQUEST",
     "BEGIN:VEVENT",
     "UID:{}".format(uid),
