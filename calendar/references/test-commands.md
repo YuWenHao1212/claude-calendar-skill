@@ -35,7 +35,7 @@ python3 calendar_ops.py find_slots 7 60
 ## Step 4：建測試事件（Mac only）
 
 ```bash
-python3 calendar_ops.py create_event "測試事件" "2026-04-08 14:00" "2026-04-08 15:00" "這是測試，可以刪除"
+python3 calendar_ops.py create_event "測試事件" "YYYY-MM-DD 14:00" "YYYY-MM-DD 15:00" "這是測試，可以刪除"
 ```
 
 去行事曆 app 確認事件有出現。測試後手動刪除。
@@ -43,7 +43,7 @@ python3 calendar_ops.py create_event "測試事件" "2026-04-08 14:00" "2026-04-
 ## Step 5：產 .ics 檔
 
 ```bash
-python3 calendar_ops.py generate_ics "Q2 課程討論" "2026-04-08T14:00:00+08:00" "2026-04-08T15:00:00+08:00" "you@email.com" "colleague@email.com" "議題：1. 五月排程 2. 講師確認"
+python3 calendar_ops.py generate_ics "Q2 課程討論" "YYYY-MM-DDT14:00:00+08:00" "YYYY-MM-DDT15:00:00+08:00" "you@email.com" "colleague@email.com" "議題：1. 五月排程 2. 講師確認"
 ```
 
 預期：產出 `/tmp/invite-xxx.ics`。雙擊確認能開啟。

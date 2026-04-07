@@ -214,7 +214,8 @@ def read_events_ics_url(ics_url, days):
 
   import urllib.request
   try:
-    data = urllib.request.urlopen(ics_url, timeout=30).read().decode("utf-8", errors="replace")
+    # Cap at 10MB to prevent memory exhaustion from malicious or huge .ics
+    data = urllib.request.urlopen(ics_url, timeout=30).read(10 * 1024 * 1024).decode("utf-8", errors="replace")
   except Exception as e:
     return {"error": "Failed to fetch .ics URL: {}".format(e)}
 
