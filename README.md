@@ -12,8 +12,10 @@ Install [claude-email-skill](https://github.com/YuWenHao1212/claude-email-skill)
 
 ## Install
 
+> **若已安裝過 calendar skill**：先備份舊版 `mv ~/.claude/skills/calendar ~/.claude/skills/calendar.bak.$(date +%s)`
+
 ```bash
-git clone https://github.com/YuWenHao1212/claude-calendar-skill.git /tmp/claude-calendar-skill && cp -r /tmp/claude-calendar-skill/calendar ~/.claude/skills/calendar
+git clone https://github.com/YuWenHao1212/claude-calendar-skill.git /tmp/claude-calendar-skill && rm -rf ~/.claude/skills/calendar && mkdir -p ~/.claude/skills && cp -r /tmp/claude-calendar-skill/calendar ~/.claude/skills/calendar
 ```
 
 ## Setup

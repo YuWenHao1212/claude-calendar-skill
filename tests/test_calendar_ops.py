@@ -144,11 +144,11 @@ class TestValidateIcsUrl(unittest.TestCase):
 
 class TestFindSlots(unittest.TestCase):
   def test_empty_events_all_free(self):
+    # Use days=7 to ensure at least one future weekday with full work hours
+    # (avoids flakiness when test runs after 18:00 local time)
     events = []
-    slots = find_slots(events, days=1, duration_min=60)
-    # Should have at least one slot (if today is a weekday)
-    if datetime.now().weekday() < 5:
-      self.assertGreater(len(slots), 0)
+    slots = find_slots(events, days=7, duration_min=60)
+    self.assertGreater(len(slots), 0)
 
   def test_full_day_no_slots(self):
     today = datetime.now().strftime("%Y-%m-%d")
