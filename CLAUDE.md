@@ -1,20 +1,20 @@
-# BP2 Calendar Skill — 安裝指南
+# Claude Calendar Skill — 安裝指南
 
 這個 repo 是 calendar skill 的安裝源。
 
 ## 前置條件
 
-需要先安裝 BP1 email skill：https://github.com/YuWenHao1212/bp1-email
+需要先安裝 email skill：https://github.com/YuWenHao1212/claude-email-skill
 
 ## 安裝
 
 當使用者說「安裝 calendar skill」、「install calendar」或任何安裝相關的請求時：
 
-1. 確認 BP1 email skill 已安裝：
+1. 確認 email skill 已安裝：
    ```bash
    ls ~/.claude/skills/email/env.md
    ```
-   如果不存在，告訴使用者先安裝 BP1 email skill。
+   如果不存在，告訴使用者先安裝 email skill。
 
 2. 把本 repo 下的 `calendar/` 資料夾整個複製到 `~/.claude/skills/calendar/`：
    ```bash
@@ -39,4 +39,4 @@
 - 如果 `~/.claude/skills/calendar/` 已存在，詢問使用者是否要覆蓋
 - 安裝完成後，這個 repo 資料夾可以刪除
 - Skill 安裝到全域（`~/.claude/skills/`），在任何目錄都能使用
-- 此 skill 依賴 BP1 email skill（寄會議通知用）
+- 此 skill 依賴 email skill（寄會議通知用）

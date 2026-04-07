@@ -1,4 +1,4 @@
-# BP2: Calendar & Meeting Automation
+# Claude Calendar Skill
 
 > Part of the [Enterprise AI Breakpoint Framework](https://github.com/YuWenHao1212?tab=repositories&q=bp&type=&language=&sort=) — 9 universal patterns for AI-powered enterprise workflows.
 
@@ -8,7 +8,7 @@ Let Claude scan your calendar for availability, create events, generate .ics inv
 
 ## Prerequisites
 
-Install [BP1: Email Workflow](https://github.com/YuWenHao1212/bp1-email) first — this skill uses it to send meeting notifications.
+Install [claude-email-skill](https://github.com/YuWenHao1212/claude-email-skill) first — this skill uses it to send meeting notifications.
 
 ## Install
 
@@ -35,7 +35,7 @@ Claude will auto-detect your platform and guide you through setup:
 | Suggest meeting times | ✅ | ✅ |
 | Create events locally | ✅ Apple Calendar | ⚠️ .ics export → manual import |
 | Generate .ics invites | ✅ | ✅ |
-| Send meeting notifications + .ics | ✅ via BP1 email | ✅ via BP1 email |
+| Send meeting notifications + .ics | ✅ via email skill | ✅ via email skill |
 | Discuss & write agenda | ✅ | ✅ |
 
 ## One-Sentence Workflow
@@ -53,7 +53,7 @@ Claude will:
 
 | Rule | How it's enforced |
 |------|-------------------|
-| Never sends invites automatically | All notifications go to Drafts folder (code-level, via BP1) |
+| Never sends invites automatically | All notifications go to Drafts folder (code-level, via email skill) |
 | Never adds attendees to calendar | Only generates .ics for recipients to import themselves |
 | Protects .ics URL | Skill instructs Claude not to display subscription URLs |
 
@@ -61,7 +61,7 @@ Claude will:
 
 | BP | Pattern | Repo |
 |----|---------|------|
-| 1 | Email Workflow | [bp1-email](https://github.com/YuWenHao1212/bp1-email) |
+| 1 | Email Workflow | [claude-email-skill](https://github.com/YuWenHao1212/claude-email-skill) |
 | **2** | **Calendar & Meeting** | **this repo** |
 | 3 | Cross-source Data Consolidation | Gamma only |
 | 7 | Document Comparison | Gamma only |

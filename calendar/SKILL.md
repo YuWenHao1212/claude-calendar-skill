@@ -7,8 +7,8 @@ description: Calendar assistant — scan availability, create events, generate .
 
 ## 前置條件
 
-此 skill 依賴 BP1 email skill（用來寄會議通知信）。
-確認 `~/.claude/skills/email/env.md` 存在。如果不存在，告訴使用者先安裝 BP1 email skill。
+此 skill 依賴 email skill（用來寄會議通知信）。
+確認 `~/.claude/skills/email/env.md` 存在。如果不存在，告訴使用者先安裝 email skill。
 
 ## 環境設定
 
@@ -24,10 +24,10 @@ description: Calendar assistant — scan availability, create events, generate .
 確認 `python3 --version`（或 `python --version`）。
 calendar_ops.py 在此 SKILL.md 同目錄下的 `scripts/calendar_ops.py`。
 
-### Step 2：確認 BP1 email skill
+### Step 2：確認 email skill
 
 檢查 `~/.claude/skills/email/env.md` 是否存在。
-如果不存在，告訴使用者：「需要先安裝 email skill。請參考 github.com/YuWenHao1212/bp1-email」
+如果不存在，告訴使用者：「需要先安裝 email skill。請參考 github.com/YuWenHao1212/claude-email-skill」
 
 ### Step 3：偵測平台
 
@@ -76,7 +76,7 @@ ics_url: {.ics 訂閱 URL}
 meet_url: {會議連結，可選}
 ```
 
-完成後讀取 BP1 email skill 的 env.md，記下 email_ops 路徑和帳號。
+完成後讀取 email skill 的 env.md，記下 email_ops 路徑和帳號。
 
 告訴使用者：「行事曆設定完成。說『建一個會議』或『我下週有空嗎』就能開始。」
 
